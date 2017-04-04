@@ -22,9 +22,10 @@ import java.util.Map;
 import codeu.chat.common.Conversation;
 import codeu.chat.common.ConversationSummary;
 import codeu.chat.common.Message;
+import codeu.chat.common.Uuid;
+import codeu.chat.common.Uuids;
 import codeu.chat.util.Logger;
 import codeu.chat.util.Method;
-import codeu.chat.util.Uuid;
 
 public final class ClientMessage {
 
@@ -37,6 +38,7 @@ public final class ClientMessage {
   private final View view;
 
   private Message current = null;
+  private int currentIndex;
 
   private final Map<Uuid, Message> messageByUuid = new HashMap<>();
 
@@ -129,24 +131,40 @@ public final class ClientMessage {
   // Message 1 is the head of the Conversation's message chain.
   // Message -1 is the tail of the Conversation's message chain.
   public void selectMessage(int index) {
-    Method.notImplemented();
+    final int size = conversationContents.size();
+    if (Math.abs(index) <= size && index != 0) // make sure the index goes from 1 to size or -1 to -size
+    {
+      currentIndex = (index > 0 ? index - 1 : size + index);
+      current = conversationContents.get(currentIndex);
+    }
+    else
+      System.out.println("ERROR: Invalid index.");
   }
 
   // Processing for m-show command.
   // Accept an int for number of messages to attempt to show (1 by default).
   // Negative values go from newest to oldest.
   public void showMessages(int count) {
-    for (final Message m : conversationContents) {
-      printMessage(m, userContext);
+    if (count + currentIndex >= conversationContents.size() || count + currentIndex < 0)
+      System.out.println("ERROR: There are not enough messages for that.");
+    else if (count >= 0)
+      showNextMessages(count);
+    else
+      showPreviousMessages(count);
+    }
+
+  private void showNextMessages(int count) {
+    for (int i = currentIndex + 1; count > 0; i++, count--)
+    {
+      printMessage(conversationContents.get(i), userContext);
     }
   }
 
-  private void showNextMessages(int count) {
-    Method.notImplemented();
-  }
-
   private void showPreviousMessages(int count) {
-    Method.notImplemented();
+    for (int i = currentIndex - 1; count < 0; i--, count++)
+    {
+      printMessage(conversationContents.get(i), userContext);
+    }
   }
 
   // Determine the next message ID of the current conversation to start pulling.
@@ -203,7 +221,7 @@ public final class ClientMessage {
       Uuid nextMessageId = getCurrentMessageFetchId(replaceAll);
 
       //  Stay in loop until all messages read (up to safety limit)
-      while (!nextMessageId.equals(Uuid.NULL) && conversationContents.size() < MESSAGE_MAX_COUNT) {
+      while (!nextMessageId.equals(Uuids.NULL) && conversationContents.size() < MESSAGE_MAX_COUNT) {
 
         for (final Message msg : view.getMessages(nextMessageId, MESSAGE_FETCH_COUNT)) {
 
@@ -211,8 +229,8 @@ public final class ClientMessage {
 
           // Race: message possibly added since conversation fetched.  If that occurs,
           // pretend the newer messages do not exist - they'll get picked up next time).
-          if (msg.next.equals(Uuid.NULL) || msg.id.equals(conversationHead.lastMessage)) {
-            msg.next = Uuid.NULL;
+          if (msg.next.equals(Uuids.NULL) || msg.id.equals(conversationHead.lastMessage)) {
+            msg.next = Uuids.NULL;
             break;
           }
         }
@@ -223,6 +241,7 @@ public final class ClientMessage {
 
       // Set current to first message of conversation.
       current = (conversationContents.size() > 0) ? conversationContents.get(0) : null;
+      currentIndex = 0;
     }
   }
 
