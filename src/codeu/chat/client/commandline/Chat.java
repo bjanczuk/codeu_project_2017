@@ -22,12 +22,18 @@ import codeu.chat.client.View;
 import codeu.chat.common.ConversationSummary;
 import codeu.chat.util.Logger;
 
+import codeu.chat.common.User;
+
 // Chat - top-level client application.
 public final class Chat {
 
   private final static Logger.Log LOG = Logger.newLog(Chat.class);
 
   private static final String PROMPT = ">>";
+
+  private static final String BOT_NAME = "Bot";
+
+  private static final String BOT_CONVO = "Convo with Bot";
 
   private final static int PAGE_SIZE = 10;
 
@@ -90,6 +96,13 @@ public final class Chat {
         System.out.println("ERROR: No user name supplied.");
       } else {
         signInUser(tokenScanner.nextLine().trim());
+
+        // automatically create the bot user and the conversation with the bot once a user signs in
+        if (clientContext.user.lookup(BOT_NAME) == null) // check whether the bot and convo already exist
+        {
+          addUser(BOT_NAME);
+          clientContext.conversation.startConversation(BOT_CONVO, clientContext.user.getCurrent().id);
+        }
       }
 
     } else if (token.equals("sign-out")) {
@@ -147,9 +160,12 @@ public final class Chat {
         if (!tokenScanner.hasNext()) {
           System.out.println("ERROR: Message body not supplied.");
         } else {
+          final String body = tokenScanner.nextLine().trim();
           clientContext.message.addMessage(clientContext.user.getCurrent().id,
               clientContext.conversation.getCurrentId(),
-              tokenScanner.nextLine().trim());
+              body);
+
+            respondAsBot(body);
         }
       }
 
@@ -163,7 +179,6 @@ public final class Chat {
 
     } else if (token.equals("m-next")) {
 
-      // TODO: Implement m-next command to jump to an index in the message chain.
       if (!clientContext.conversation.hasCurrent()) {
         System.out.println("ERROR: No conversation selected.");
       } else if (!tokenScanner.hasNextInt()) {
@@ -174,7 +189,6 @@ public final class Chat {
 
     } else if (token.equals("m-show")) {
 
-      // TODO: Implement m-show command to show N messages (currently just show all)
       if (!clientContext.conversation.hasCurrent()) {
         System.out.println("ERROR: No conversation selected.");
       } else {
@@ -318,6 +332,18 @@ public final class Chat {
     if (newCurrent != previous) {
       clientContext.conversation.setCurrent(newCurrent);
       clientContext.conversation.updateAllConversations(true);
+    }
+  }
+
+  private void respondAsBot(String body) {
+    // check if the current conversation is with the bot and respond accordingly
+    final ConversationSummary current = clientContext.conversation.getCurrent();
+    if (current.title.equals(BOT_CONVO))
+    {
+      final User bot = clientContext.user.lookup(BOT_NAME);
+      clientContext.message.addMessage(bot.id,
+        clientContext.conversation.getCurrentId(),
+        body);
     }
   }
 }
