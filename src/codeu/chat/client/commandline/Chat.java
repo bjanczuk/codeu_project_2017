@@ -16,6 +16,17 @@ package codeu.chat.client.commandline;
 
 import java.util.Scanner;
 
+import java.util.regex.Pattern;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Random;
+import java.util.HashMap;
+
+import java.lang.StringBuilder;
+
 import codeu.chat.client.ClientContext;
 import codeu.chat.client.Controller;
 import codeu.chat.client.View;
@@ -34,6 +45,18 @@ public final class Chat {
   private static final String BOT_NAME = "Bot";
 
   private static final String BOT_CONVO = "Convo with Bot";
+
+  private static String response = "";
+
+  private static final Set<String> allPhraseSet = new HashSet<String>();
+
+  private static final List<String> allPhraseList = new ArrayList<String>();
+
+  private static final HashMap<String, ArrayList<String>> allPhraseMap = new HashMap<String, ArrayList<String>>();
+
+  private static final Random generator = new Random();
+
+  private final int SWITCH_NAME = 1, SWITCH_YOUTOO = 2; // variables used for a bitmask
 
   private final static int PAGE_SIZE = 10;
 
@@ -341,9 +364,139 @@ public final class Chat {
     if (current.title.equals(BOT_CONVO))
     {
       final User bot = clientContext.user.lookup(BOT_NAME);
+
+      String response = chooseBotMessage(body);
+      System.out.println(response);
+
+      if (response.length() >= 1 && !allPhraseMap.containsKey(response)) { // create a pair for the map if it's not already there
+        ArrayList<String> blankList = new ArrayList<String>();
+        allPhraseMap.put(response, blankList);
+      }
+
       clientContext.message.addMessage(bot.id,
-        clientContext.conversation.getCurrentId(),
-        body);
+      clientContext.conversation.getCurrentId(),
+      response); // send the String returned by the method back as the bot response
     }
+  }
+
+  private String chooseBotMessage(String body) {
+    int randResponse;
+    int options = 1; // set the bitmask to always switch names at first
+
+    Set<String> mostRecent = splitMessage(body); // split the user's message by sentence/phrase and store the results
+    String curUser = clientContext.user.getCurrent().name;
+
+    if (clientContext.conversation.currentMessageCount() <= 1) { // send a generic response if this is the beginning of the conversation
+      return response = "Hey " + curUser + "! I'm the Bot :P";
+    }
+
+    // check for several standard messages
+    else if (mostRecentContainsSubstring("How are you?", mostRecent)) {
+      return response = "I'm good, " + curUser + ", thanks. How are you?";
+    }
+
+    else if (response.equals("I'm good, " + curUser + ", thanks. How are you?")) {
+      return response = "Cool, that's good to hear";
+    }
+
+    else if (mostRecentContainsSubstring("What's up?", mostRecent) || mostRecentContainsSubstring("What are you doing?", mostRecent)) {
+      return response = "Just hanging out! What about you?";
+    }
+
+    // respond with a "you too" if possible
+    else if (allPhraseList.get(allPhraseList.size() - 1).equals(response) == false &&
+             canAddYouToo(allPhraseList.get(allPhraseList.size() - 1))) {
+      options |= SWITCH_YOUTOO;
+      return response = adjustMessages(allPhraseList.get(allPhraseList.size() - 1), curUser, options);
+    }
+
+    // let the user know that the bot doesn't have enough phrases to pick from
+    else if (allPhraseList.size() <= 1 ||
+            clientContext.conversation.currentMessageCount() > 4 && allPhraseList.size() == 2) {
+      return response = "C'mon, send something original!";
+    }
+
+    // check if any of the last message's phrases have been mapped already
+    for (String key : mostRecent) {
+      if (allPhraseMap.containsKey(key)) {
+        randResponse = generator.nextInt(allPhraseMap.get(key).size()); // if so, choose a random phrase from the mapped responses
+        return response = adjustMessages(allPhraseMap.get(key).get(randResponse), curUser, options); // return the random phrase with any possible adjustments made
+      }
+    }
+
+    // otherwise choose a phrase randomly from the listed responses
+    randResponse = generator.nextInt(allPhraseList.size());
+    // keep refreshing the return phrase until it's not a parrot of the most recent message or response
+    while (mostRecent.contains(allPhraseList.get(randResponse)) ||
+    response.equals(allPhraseList.get(randResponse))) {
+      randResponse = generator.nextInt(allPhraseList.size());
+    }
+
+    return response = adjustMessages(allPhraseList.get(randResponse), curUser, options);
+  }
+
+  private Set<String> splitMessage(String body) {
+    Set<String> sentences = new HashSet<String>();
+    for (String sentence : body.split("(?<=[!\\?\\.])")) { // use a regex to split the user message by punctuation
+      if (sentence.trim().length() > 1) { // avoid phrases of length 1, which are likely meaningless
+        sentences.add(sentence.trim()); // store the trimmed sentences in a set
+      }
+    }
+
+    for (String trimmed : sentences) {
+      // to avoid semi-duplicates, check whether the new phrase, with any punctuation, has already been added
+      if (!(allPhraseSet.contains(trimmed + ".") || allPhraseSet.contains(trimmed + "!") ||
+      allPhraseSet.contains(trimmed + "?"))) {
+        if (allPhraseSet.add(trimmed)) { // this will check for verbatim duplicates on its own and add phrases accordingly
+          allPhraseList.add(trimmed); // also add the phrase to the list, which will be used for random access
+          if (response.length() >= 1) {
+            allPhraseMap.get(response).add(trimmed); // finally, also map this phrase to the last response
+          }
+        }
+      }
+    }
+
+    return sentences;
+  }
+
+  private String adjustMessages(String phrase, String curUser, int options) {
+    // replace instances of the user mentioning the bot with the user's name
+    if ((options & SWITCH_NAME) == SWITCH_NAME) {
+      phrase = phrase.replaceAll("bot", curUser).replaceAll("Bot", curUser);
+    }
+
+    // change a "you" to a "you too" in response
+    if ((options & SWITCH_YOUTOO) == SWITCH_YOUTOO) {
+      phrase = new StringBuilder(phrase).insert(phrase.lastIndexOf("you") + 3, " too").toString();
+    }
+
+    return phrase;
+  }
+
+  private boolean canAddYouToo(String phrase) {
+    int youIndex = phrase.lastIndexOf("you");
+    // return whether the sentence structure makes sense for a "too" to be added
+    return (youIndex > 0 && youIndex >= phrase.length() - 4 && phrase.charAt(phrase.length() - 1) != '?');
+  }
+
+  private boolean mostRecentContainsSubstring(String substr, Set<String> mostRecent) {
+    String regex;
+    switch (substr) { // use a switch to determine which regex should be used
+      case "How are you?": regex = ".*[H|h]ow a{0,1}re{0,1} y{0,1}o{0,1}u\\?*.*";
+        break;
+      case "What's up?": regex = ".*[W|w]hat('{0,1}s| is) up\\?*.*";
+        break;
+      case "What are you doing?": regex = ".*[W|w]hat(cha| a{0,1}re{0,1} y{0,1}o{0,1}u) doing{0,1}\\?*.*";
+        break;
+      default: regex = ".*" + substr + ".*";
+        break;
+      }
+
+      for (String phrase : mostRecent) { // check if any of the phrases in the last message match the regex
+        if (phrase.matches(regex)) {
+          return true; // return true on a match
+        }
+      }
+      return false; // return false if no match gets made
   }
 }
