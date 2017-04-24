@@ -20,9 +20,12 @@ import java.util.HashMap;
 import java.util.Map;
 
 import codeu.chat.common.User;
+import codeu.chat.common.Uuid;
 import codeu.chat.util.Logger;
-import codeu.chat.util.Uuid;
 import codeu.chat.util.store.Store;
+
+import codeu.chat.client.ClientContext;
+import codeu.chat.common.ConversationSummary;
 
 public final class ClientUser {
 
@@ -111,6 +114,10 @@ public final class ClientUser {
 
   public User lookup(Uuid id) {
     return (usersById.containsKey(id)) ? usersById.get(id) : null;
+  }
+
+  public User lookup(String name) {
+    return usersByName.first(name);
   }
 
   public String getName(Uuid id) {
