@@ -35,6 +35,14 @@ import codeu.chat.util.Logger;
 
 import codeu.chat.common.User;
 
+import org.jsoup.Jsoup;
+import org.jsoup.helper.Validate;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+
+import java.io.IOException;
+
 // Chat - top-level client application.
 public final class Chat {
 
@@ -43,24 +51,27 @@ public final class Chat {
   private static final String PROMPT = ">>";
 
   private static final String BOT_NAME = "Bot";
-
   private static final String BOT_CONVO = "Convo with Bot";
 
   private static String response = "";
 
   private static final Set<String> userPhraseSet = new HashSet<String>();
-
   private static final List<String> userPhraseList = new ArrayList<String>();
-
   public static final HashMap<String, ArrayList<String>> userPhraseMap = new HashMap<String, ArrayList<String>>();
 
   public static final HashMap<String, String> responseMap = new HashMap<String, String>();
 
+  public static final HashMap<String, ArrayList<String>> scriptMap = new HashMap<String, ArrayList<String>>();
+
   private static final Random generator = new Random();
 
   private final int SWITCH_NAME = 1; // Variable used for a bitmask
-
   private final int SWITCH_YOUTOO = 2; // Variable used for a bitmask
+
+  private static final String FORMAT_STR = "https://www.google.com/search?q=\"%s\"+movie+script";
+  private static final int MIN_LENGTH = 8;
+  private static final int MAX_LINES = 4;
+  private static String MATCHED_PHRASE = "";
 
   private final static int PAGE_SIZE = 10;
 
@@ -506,7 +517,7 @@ public final class Chat {
     if (responseMap.size() == 0)
       initializeResponseMap();
 
-    response = chooseBotMessage(body);
+    response = capitalizeFirstLetter(chooseBotMessage(body));
     if (print) // Print out the bot's response if this isn't the test
       System.out.println(response);
 
@@ -520,23 +531,24 @@ public final class Chat {
 
   private void initializeResponseMap() {
       String curUser = clientContext.user.getCurrent().name;
-      responseMap.put("How are you?", "I'm good, " + curUser + ", thanks. How are you?");
-      responseMap.put("What's up?", "Just hanging out! What about you?");
-      responseMap.put("What are you doing?", "Just hanging out! What about you?");
-      responseMap.put("It's nice to meet you!", "It's nice to meet you too, " + curUser);
-      responseMap.put("It's great to meet you!", "It's great to meet you too, " + curUser);
-      responseMap.put("It's a pleasure to meet you!", "It's a pleasure to meet you too, " + curUser);
-      responseMap.put("Good-bye", "Bye " + curUser + "!");
-      responseMap.put("See ya", "Bye " + curUser + "!");
-      responseMap.put("I'm bored", "Yeah, me too");
-      responseMap.put("What?", "What do you mean, 'What?'");
-      responseMap.put("How's life?", "Oh, you know. Same old");
-      responseMap.put("What are your hobbies?", "Sleeping, reading, chatting with cool kids like you, etc.");
-      responseMap.put("What do you like to do?", "Sleeping, reading, chatting with cool kids like you, etc.");
-      responseMap.put("You said that already", "Whoops, sorry - I'm forgetful like that!");
-      responseMap.put("You already told me", "Whoops, sorry - I'm forgetful like that!");
-      responseMap.put("What are you talking about?", "Huh? What are YOU talking about?");
-      responseMap.put("That was random", "Yeah, sorry...I'm kind of random sometimes");
+      List<String> mappedResps;
+      responseMap.put("how are you?", "I'm good, " + curUser + ", thanks. How are you?");
+      responseMap.put("what's up?", "Just hanging out! What about you?");
+      responseMap.put("what are you doing?", "Just hanging out! What about you?");
+      responseMap.put("it's nice to meet you!", "It's nice to meet you too, " + curUser);
+      responseMap.put("it's great to meet you!", "It's great to meet you too, " + curUser);
+      responseMap.put("it's a pleasure to meet you!", "It's a pleasure to meet you too, " + curUser);
+      responseMap.put("good-bye", "Bye " + curUser + "!");
+      responseMap.put("see ya", "Bye " + curUser + "!");
+      responseMap.put("i'm bored", "Yeah, me too");
+      responseMap.put("what?", "What do you mean, 'What?'");
+      responseMap.put("how's life?", "Oh, you know. Same old");
+      responseMap.put("what are your hobbies?", "Sleeping, reading, chatting with cool kids like you, etc.");
+      responseMap.put("what do you like to do?", "Sleeping, reading, chatting with cool kids like you, etc.");
+      responseMap.put("you said that already", "Whoops, sorry - I'm forgetful like that!");
+      responseMap.put("you already told me", "Whoops, sorry - I'm forgetful like that!");
+      responseMap.put("what are you talking about?", "Huh? What are YOU talking about?");
+      responseMap.put("that was random", "Yeah, sorry...I'm kind of random sometimes");
   }
 
   private String chooseBotMessage(String body) {
@@ -557,6 +569,12 @@ public final class Chat {
     // Check for several standard messages
     else if (mostRecentContainsSubstring(mostRecent)) {
       return response;
+    }
+    else if (checkPhrasesForOnlineScript(mostRecent)) {
+      /* Return a random response from the list that one of the user's
+         phrases is mapped to */
+      randResponse = generator.nextInt(scriptMap.get(MATCHED_PHRASE).size());
+      return response = scriptMap.get(MATCHED_PHRASE).get(randResponse);
     }
     // Respond with a "you too" if possible
     else if (userPhraseList.get(userPhraseList.size() - 1).equals(response) == false &&
@@ -591,9 +609,16 @@ public final class Chat {
   }
 
   private void addNewUserPair(String response) {
-      if (response.length() >= 1 && !userPhraseMap.containsKey(response)) {
-        ArrayList<String> blankList = new ArrayList<String>();
-        userPhraseMap.put(response, blankList);
+    if (response.length() >= 1 && !userPhraseMap.containsKey(response)) {
+      ArrayList<String> blankList = new ArrayList<String>();
+      userPhraseMap.put(response, blankList);
+    }
+  }
+
+  private void addNewScriptPair(String phrase) {
+    if (!scriptMap.containsKey(phrase)) {
+      ArrayList<String> blankList = new ArrayList<String>();
+      scriptMap.put(phrase, blankList);
     }
   }
 
@@ -607,7 +632,7 @@ public final class Chat {
 
     for (String trimmed : sentences) {
       // Don't add anything that matches a general greeting
-      if (!((getLevenshteinDistance(trimmed, "How are you?")) <= trimmed.length() / 2.0
+      if (!((getLevenshteinDistance(trimmed, "How are you?")) <= "How are you?".length() / 3.0
         || trimmed.contains("hello") || trimmed.contains("Hello")))  {
         if (!(userPhraseSet.contains(trimmed + ".") || userPhraseSet.contains(trimmed + "!") ||
         userPhraseSet.contains(trimmed + "?"))) {
@@ -651,26 +676,63 @@ public final class Chat {
 
   private boolean mostRecentContainsSubstring(Set<String> mostRecent) {
     int distance;
+    int randResponse;
     double bestPercent = 1;
     String bestResponse = "";
 
+    /* Check the prewritten responses */
     for (String key : responseMap.keySet()) {
       for (String phrase : mostRecent) {
         // Check for a match between user phrase and stored phrases using edit distance
-        if ((distance = getLevenshteinDistance(key, phrase)) <= key.length() / 2.0) {
+        if ((!phraseReferencesSelf(phrase) && (distance =
+              getLevenshteinDistance(key, phrase)) <= phrase.length() / 3.0)) {
           // If a match is found, record the percent match and response and move on
           if ((double)distance / key.length() < bestPercent) {
             bestPercent = (double)distance / key.length();
             bestResponse = responseMap.get(key);
           }
         }
+        else if (phrase.toLowerCase().contains(key) &&
+                 phrase.length() <= key.length() * 1.3) {
+          bestResponse = responseMap.get(key);
+        }
       }
     }
+
+    /* Check the responses gained from online movie scripts */
+    for (String key : scriptMap.keySet()) {
+      for (String phrase : mostRecent) {
+        // Check for a match between user phrase and stored phrases using edit distance
+        if ((!phraseReferencesSelf(phrase) && (distance =
+              getLevenshteinDistance(key, phrase)) <= phrase.length() / 3.0)) {
+          // If a match is found, record the percent match and response and move on
+          if ((double)distance / key.length() < bestPercent) {
+            bestPercent = (double)distance / key.length();
+            randResponse = generator.nextInt(scriptMap.get(key).size());
+            bestResponse = scriptMap.get(key).get(randResponse);
+          }
+        }
+        else if (phrase.toLowerCase().contains(key)) {
+          randResponse = generator.nextInt(scriptMap.get(key).size());
+          bestResponse = scriptMap.get(key).get(randResponse);
+        }
+      }
+    }
+
     if (bestResponse.length() == 0) // Return false if no match gets made
       return false;
 
     response = bestResponse;
     return true;
+  }
+
+  private static boolean phraseReferencesSelf(String phrase) {
+    phrase = phrase.toLowerCase();
+    if (phrase.substring(0, 2).equals("i ") ||
+        phrase.contains(" i ")) {
+      return true;
+    }
+    return false;
   }
 
   // Verbatim source code taken from the Apache Commons StringUtils class
@@ -731,5 +793,276 @@ public final class Chat {
       // our last action in the above loop was to switch d and p, so p now
       // actually has the most recent cost counts
       return p[n];
+  }
+
+  private boolean checkPhrasesForOnlineScript(Set<String> mostRecent) {
+    Document doc;
+    String url;
+    boolean found = false;
+
+    /* Test each phrase sent to see whether a script containing it can be found */
+    for (String phrase : mostRecent) {
+      phrase = phrase.toLowerCase().trim();
+      if (phrase.length() < MIN_LENGTH) { // Skip the shorter, more generic phrases
+        continue;
+      }
+      /* Construct the Google search query for this phrase */
+      url = String.format(FORMAT_STR, phrase.replace(' ', '+'));
+
+      List<String> links = findScript(url); // Look for scripts in the search results
+      if (links.size() == 0) { 
+        continue;
+      }
+
+      /* If any scripts were found, iterate through all of them
+         to see if a suitable response can be found */
+      MATCHED_PHRASE = phrase;
+      addNewScriptPair(MATCHED_PHRASE);
+      for (String link : links) {
+        if (link.contains("script-o-rama")) {
+          if (parseScript(link, phrase, false)) {
+            found = true;
+          }
+        }
+        else {
+          if (parseScript(link, phrase, true)) {
+            found = true;
+          }
+        }
+      }
+    }
+    return found; // Return whether any scripts could be found for any phrase
+  }
+
+  private List<String> findScript(String url) {
+    List<String> elemLinks = new ArrayList<String>();
+    try {
+      Document doc = Jsoup.connect(url).get(); // Make the request
+      String elemLink, elemText;
+
+      /* Parse the search results */
+      Elements links = doc.select("a[href]");
+      for (Element link : links) {
+        elemLink = link.attr("href");
+        elemText = link.text();
+
+        /* Check if any scripts for a movie in this Google search were found.
+           If so, add them to the links list */
+        if ((elemLink.contains("script-o-rama") || elemLink.contains("springfieldspringfield"))
+          && !(elemText.equals("Cached") || elemText.equals("Similar"))) {
+          elemLinks.add(elemLink);
+        }
+      }
+    }
+    catch (IOException e) {
+      e.printStackTrace();
+    }
+    return elemLinks; // Return an empty string to indicate failure
+  }
+
+  private boolean parseScript(String link, String phrase, boolean springfield) {
+    String[] script;
+
+    try {
+      Document doc = Jsoup.connect(link).get();
+
+      /* If the script was retrieved from the Springfield website, the lines
+         must be split up using the <br> tag instead of new line characters */
+      if (springfield) {
+        String temp = Jsoup.parse(doc.html().replaceAll("(?i)<br[^>]*>", "br2n")).text();
+        script = mergeScriptSentences(temp.split("br2n"));
+      }
+      else {
+        script = mergeScriptSentences(doc.body().text().split("\n"));
+      }
+
+      /* Search for a line containing the phrase. Once one is found,
+         determine the best response and return accordingly. In some
+         cases, this will mean continuing to search for a later match */
+      for (int lineNum = 0; lineNum < script.length; lineNum++) {
+        script[lineNum] = script[lineNum].trim();
+        for (String sentence : script[lineNum].split("(?<=[!\\?\\.])")) {
+          if (getLevenshteinDistance(sentence.toLowerCase(), phrase)
+              <= phrase.length() / 3.0) {
+            if (findNextScriptResponse(lineNum, phrase, script)) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    catch (IOException e) {
+          e.printStackTrace();
+    }
+    return false; // Return false if no line containing the phrase was found
+  }
+
+  private String[] mergeScriptSentences(String[] script) {
+    List<String> tempScript = new ArrayList<String>();
+    int lineNum = 0;
+    String mergedLine;
+    char last = ' ';
+
+    while (lineNum < script.length) {
+      mergedLine = "";
+      script[lineNum] = script[lineNum].trim();
+
+      /* Loop until a line ending in punctuation comes up, all the while
+         combining all the lines since the last punct. into one string */
+      last = getLastChar(script[lineNum]);
+      while (lineNum < script.length && last != '.'
+             && last != '?' && last != '!') {
+        mergedLine += script[lineNum];
+        mergedLine += " ";
+
+        lineNum = advanceToNextNonBlankLine(lineNum, script);
+
+        if (lineNum < script.length) {
+          script[lineNum] = script[lineNum].trim();
+          last = getLastChar(script[lineNum]);
+        }
+      }
+
+      if (lineNum < script.length) {
+        mergedLine += script[lineNum];
+        lineNum++;
+      }
+      tempScript.add(removeCharacterName(mergedLine.trim()));
+    }
+
+    String[] newScript = new String[tempScript.size()];
+    newScript = tempScript.toArray(newScript);
+    return newScript;
+  }
+
+  private char getLastChar(String line) {
+    char last;
+    try {
+      last = line.charAt(line.length() - 1);
+    }
+    catch (StringIndexOutOfBoundsException exception) {
+      last = ' ';
+    }
+    return last;
+  }
+
+  private String removeCharacterName(String phrase) {
+    if (phrase.indexOf(":") > 0 && phrase.indexOf(":") < phrase.indexOf(" ")) {
+      return phrase.substring(phrase.indexOf(":") + 1).trim();
+    }
+    return phrase;
+  }
+
+  private boolean findNextScriptResponse(int lineNum, String phrase, String[] script) {
+    /* Check if a line from a different character (i.e. an actual response)
+       can be found. If not, just respond with the very next line of dialogue */
+    if (canFindNewCharacter(lineNum, script)) {
+      return true;
+    }
+
+    /* Next, check if the line containing this phrase contains more wording. If it
+       does, use the next sentence as the response */
+    if (lineContainsMoreSentences(script[lineNum], phrase)) {
+      return true;
+    }
+
+    /* Advance to the next non-blank line, indicating the next piece of dialogue */
+    lineNum = advanceToNextNonBlankLine(lineNum, script);
+
+    if (lineNum >= script.length ||
+        getLevenshteinDistance(script[lineNum].trim(), phrase) < phrase.length() / 2.0) { // Ensure that there was a next line of dialogue
+      return false;
+    }
+
+    /* Add this response found from an online script to the
+       response map for future reference/usage */
+    scriptMap.get(MATCHED_PHRASE).add(script[lineNum].trim());
+    return true;
+  }
+
+  private boolean canFindNewCharacter(int lineNum, String[] script) {
+    int counter = 0;
+
+    lineNum = advanceToNextNonBlankLine(lineNum, script);
+    while (lineNum < script.length && counter <= MAX_LINES) {
+
+      /* A '-' indicates a new character's line. If one is found to
+         start a line, and that line contains at least two words, add
+         that phrase to the script map of responses and return. */
+      if (script[lineNum].charAt(0) == '-' &&
+          script[lineNum].substring(1).trim().contains(" ")) {
+        scriptMap.get(MATCHED_PHRASE).add(script[lineNum].substring(1).trim());
+        return true;
+      }
+      counter++;
+      lineNum = advanceToNextNonBlankLine(lineNum, script);
+    }
+    /* Return false if no new character's line was found soon enough */
+    return false;
+  }
+
+  private boolean lineContainsMoreSentences(String line, String phrase) {
+    int periodIndex, questionIndex, exclaimIndex, punctIndex;
+    String nextSentence;
+
+    line = line.trim().toLowerCase();
+    phrase = phrase.toLowerCase();
+    int index = line.indexOf(phrase);
+
+    /* Return false if no exact match can be made or if the match is 
+       at the end of the line */
+    if (index == -1 || index + phrase.length() + 1 >= line.length()) {
+      return false;
+    }
+
+    nextSentence = line.substring(index + phrase.length() + 1).trim();
+
+    /* Find the end of the next sentence by finding the index of the next
+       punctuation mark */
+    periodIndex =
+      nextSentence.indexOf(".") != -1 ? nextSentence.indexOf(".") : Integer.MAX_VALUE;
+    questionIndex =
+      nextSentence.indexOf("?") != -1 ? nextSentence.indexOf("?") : Integer.MAX_VALUE;
+    exclaimIndex =
+      nextSentence.indexOf("!") != -1 ? nextSentence.indexOf("!") : Integer.MAX_VALUE;
+    punctIndex = Math.min(periodIndex, Math.min(questionIndex, exclaimIndex));
+
+    nextSentence = nextSentence.substring(0, punctIndex).trim();
+    if (nextSentence.length() == 0) // Ensure that an empty string wasn't found
+      return false;
+
+    nextSentence = capitalizeFirstLetter(nextSentence);
+    scriptMap.get(MATCHED_PHRASE).add(nextSentence);
+    return true;
+  }
+
+  private int advanceToNextBlankLine(int lineNum, String[] script) {
+    if (script[lineNum].trim().length() == 0) {
+      lineNum++;
+    }
+    while (lineNum + 1 < script.length && script[lineNum].trim().length() > 0) {
+      lineNum++;
+      script[lineNum] = script[lineNum].trim();
+    }
+    return lineNum;
+  }
+
+  private int advanceToNextNonBlankLine(int lineNum, String[] script) {
+    if (script[lineNum].trim().length() > 0) {
+      lineNum++;
+    }
+    while (lineNum + 1 < script.length && script[lineNum].trim().length() == 0) {
+      lineNum++;
+    }
+    return lineNum;
+  }
+
+  private String capitalizeFirstLetter(String s) {
+    if (s.length() <= 1) {
+      return s.toUpperCase();
+    }
+
+    return s.substring(0, 1).toUpperCase()
+           + s.substring(1);
   }
 }
